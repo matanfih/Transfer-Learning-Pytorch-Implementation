@@ -39,7 +39,6 @@ from __future__ import division
 
 import argparse
 import datetime
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -50,8 +49,9 @@ import matplotlib.pyplot as plt
 import time
 import os
 import copy
-import time
+from time import process_time as clock
 
+import test_nvidia
 
 print("PyTorch Version: ", torch.__version__)
 print("Torchvision Version: ", torchvision.__version__)
@@ -85,7 +85,7 @@ global input_size
 # training and validation accuracies are printed.
 #
 
-def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_inception=False):
+def train_model(model, device, file, dataloaders, criterion, optimizer, num_epochs=25, is_inception=False):
     since = time.time()
 
     val_acc_history = []
@@ -111,7 +111,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
             # Iterate over data.
             print("iterating over data started ")
             i=0
-            start = time.clock()
+            start = clock()
             for inputs, labels in dataloaders[phase]:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
@@ -152,7 +152,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
                 #saving the model
 
 
-                end=time.clock()
+                end=clock()
                 print ("one data took "+str(end - start))
 
 
@@ -453,21 +453,15 @@ def initialize_model(model_name, num_classes, feature_extract, use_pretrained=Tr
 
     return model_ft, input_size
 
-
-
-
-
-if __name__ == "__main__":
-
+def main():
     now = datetime.datetime.now()
-    file=open("trainingTime.txt","w")
+    file = open("trainingTime.txt", "w")
 
-    start_time=time.clock()
-    file.write("programm started running at ---- "+str(now.hour)+": "+str(now.minute)+": "+str(now.hour) )
+    start_time = clock()
+    file.write("programm started running at ---- " + str(now.hour) + ": " + str(now.minute) + ": " + str(now.hour))
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataFolder', required=True, help='Full path to model checkpoint')
+    parser.add_argument('--dataFolder', required=False, default="/tmp/mnist_png", help='Full path to model checkpoint')
     args = parser.parse_args()
-
 
     # Top level data directory. Here we assume the format of the directory conforms
     #   to the ImageFolder structure
@@ -489,23 +483,20 @@ if __name__ == "__main__":
     #   when True we only update the reshaped layer params
     feature_extract = True
 
-
-
-
-
-
     # Initialize the model for this run
     global input_size
-    variable_init_Time=time.clock();
-    sec=(variable_init_Time-start_time)/100
-    min=sec/60
-    file.write("time elapsed for variable initializaton = "+str(sec) + " seconds-------- or ------- "+str(min)+"   minutes")
+    variable_init_Time = clock()
+    sec = (variable_init_Time - start_time) / 100
+    min = sec / 60
+    file.write("time elapsed for variable initializaton = " + str(sec) + " seconds-------- or ------- " + str(
+        min) + "   minutes")
 
-    model_ft,  input_size = initialize_model(model_name, num_classes, feature_extract, use_pretrained=True)
-    model_init_Time=time.clock()
+    model_ft, input_size = initialize_model(model_name, num_classes, feature_extract, use_pretrained=True)
+    model_init_Time = clock()
     sec = (model_init_Time - start_time) / 100
     min = sec / 60
-    file.write("time elapsed for model initializaton = " +str(sec) + " seconds-------- or ------- " + str(min) + "   minutes")
+    file.write(
+        "time elapsed for model initializaton = " + str(sec) + " seconds-------- or ------- " + str(min) + "   minutes")
     # Print the model we just instantiated
     print(model_ft)
     print("Initializing Datasets and Dataloaders...")
@@ -546,12 +537,18 @@ if __name__ == "__main__":
     dataloaders_dict = {
         x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch_size, shuffle=True, num_workers=4) for x in
         ['training', 'testing']}
-    data_init_Time=time.clock()
+    data_init_Time = clock()
     sec = (data_init_Time - start_time) / 100
     min = sec / 60
-    file.write("time elapsed for data initializaton = " + str(sec) + " seconds-------- or ------- " + str(min) + "   minutes")
+    file.write(
+        "time elapsed for data initializaton = " + str(sec) + " seconds-------- or ------- " + str(min) + "   minutes")
     # Detect if we have a GPU available
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    device = test_nvidia.get_free_gpu()
+    print("found free GPU: %s" % device)
+    if device is None:
+        device = "cpu"
+        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     ######################################################################
     # Create the Optimizer
@@ -611,12 +608,12 @@ if __name__ == "__main__":
 
     # Setup the loss fxn
     criterion = nn.CrossEntropyLoss()
-    train_start=time.clock()
+    train_start = clock()
     # Train and evaluate
-    model_ft, hist = train_model(model_ft, dataloaders_dict, criterion, optimizer_ft, num_epochs=num_epochs,
+    model_ft, hist = train_model(model_ft, device, file, dataloaders_dict, criterion, optimizer_ft, num_epochs=num_epochs,
                                  is_inception=(model_name == "inception"))
 
-    train_end = time.clock()
+    train_end = clock()
     sec = (train_end - train_start) / 100
     min = sec / 60
 
@@ -638,7 +635,7 @@ if __name__ == "__main__":
     scratch_model = scratch_model.to(device)
     scratch_optimizer = optim.SGD(scratch_model.parameters(), lr=0.001, momentum=0.9)
     scratch_criterion = nn.CrossEntropyLoss()
-    _, scratch_hist = train_model(scratch_model, dataloaders_dict, scratch_criterion, scratch_optimizer,
+    _, scratch_hist = train_model(scratch_model, device, file, dataloaders_dict, scratch_criterion, scratch_optimizer,
                                   num_epochs=num_epochs, is_inception=(model_name == "inception"))
 
     # Plot the training curves of validation accuracy vs. number
@@ -659,3 +656,7 @@ if __name__ == "__main__":
     plt.xticks(np.arange(1, num_epochs + 1, 1.0))
     plt.legend()
     plt.show()
+
+if __name__ == "__main__":
+    main()
+
